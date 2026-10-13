@@ -1656,6 +1656,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     refresh();
     let _ = tray.show();
+    desktop::keep_tray_icon_after_explorer_restart();
     if !has_switch(&args, "/tray") {
         show_window();
     }

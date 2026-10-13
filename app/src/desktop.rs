@@ -280,6 +280,71 @@ fn own_window() -> Option<windows::Win32::Foundation::HWND> {
     found
 }
 
+/// When Explorer restarts (crash, Task Manager › Restart, some updates) the taskbar is new and
+/// every app has to add its tray icon again; Windows announces this with a "TaskbarCreated"
+/// broadcast. The tray icon's window is message-only, and those never get broadcasts, so the
+/// icon would stay gone while KilatX keeps running. This hidden window (top-level, so it does
+/// get the broadcast) passes the message on to the tray icon's window, which adds the icon back.
+/// Call on the UI thread after the tray icon exists.
+pub fn keep_tray_icon_after_explorer_restart() {
+    use windows::core::w;
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        ChangeWindowMessageFilterEx, CreateWindowExW, RegisterClassW, MSGFLT_ALLOW, WINDOW_EX_STYLE, WNDCLASSW, WS_POPUP,
+    };
+    let message = taskbar_created_message();
+    unsafe {
+        let Ok(instance) = GetModuleHandleW(None) else { return };
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(taskbar_watcher_proc),
+            hInstance: instance.into(),
+            lpszClassName: w!("KilatXTaskbarWatcher"),
+            ..Default::default()
+        };
+        RegisterClassW(&class);
+        // Never shown; no parent and no WS_CHILD, so it is top-level and gets broadcasts.
+        match CreateWindowExW(WINDOW_EX_STYLE(0), w!("KilatXTaskbarWatcher"), PCWSTR::null(), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None) {
+            // Lets Explorer's message through even if KilatX was started as administrator.
+            Ok(hwnd) => {
+                let _ = ChangeWindowMessageFilterEx(hwnd, message, MSGFLT_ALLOW, None);
+            }
+            Err(e) => crate::log::warn("tray", &format!("cannot watch for taskbar restarts: {e}")),
+        }
+    }
+}
+
+fn taskbar_created_message() -> u32 {
+    unsafe { windows::Win32::UI::WindowsAndMessaging::RegisterWindowMessageW(windows::core::w!("TaskbarCreated")) }
+}
+
+unsafe extern "system" fn taskbar_watcher_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, FindWindowExW, GetWindowThreadProcessId, SendMessageW, HWND_MESSAGE};
+    if msg != 0 && msg == taskbar_created_message() {
+        // The tray icon's message-only window (created by the UI library), in this process only.
+        let mut after = None;
+        let mut passed = 0;
+        while let Ok(tray) = FindWindowExW(Some(HWND_MESSAGE), after, windows::core::w!("SlintSystemTrayWindow"), PCWSTR::null()) {
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(tray, Some(&mut pid));
+            if pid == std::process::id() {
+                SendMessageW(tray, msg, Some(WPARAM(0)), Some(LPARAM(0)));
+                passed += 1;
+            }
+            after = Some(tray);
+        }
+        crate::log::info("tray", &format!("taskbar restarted; tray icon added again ({passed})"));
+        crate::util::test_event("tray-readded", &passed.to_string());
+        return windows::Win32::Foundation::LRESULT(0);
+    }
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
 /// Changes whenever anything is copied; cheap to poll.
 pub fn clipboard_sequence() -> u32 {
     unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() }
