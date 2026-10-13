@@ -426,6 +426,7 @@ impl Engine {
             idx.map(|i| items.remove(i))
         };
         let Some(item) = removed else { return };
+        crate::log::info("download", &format!("#{id} removed from the list{}: {}", if delete_file { " with its file" } else { "" }, item.file_name));
         self.limiters.lock().unwrap().remove(&id);
         self.dirty.store(true, Ordering::Relaxed);
         let cancels = self.cancels.clone();
@@ -445,7 +446,13 @@ impl Engine {
     }
 
     pub fn clear_completed(&self) {
-        self.items.lock().unwrap().retain(|i| i.status != Status::Complete);
+        let removed = {
+            let mut items = self.items.lock().unwrap();
+            let before = items.len();
+            items.retain(|i| i.status != Status::Complete);
+            before - items.len()
+        };
+        crate::log::info("download", &format!("finished downloads cleared from the list ({removed})"));
         self.dirty.store(true, Ordering::Relaxed);
     }
 
