@@ -333,6 +333,14 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+/// Shows a Windows notification from a helper thread: the notification service runs in
+/// another process, and KilatX's window must never wait for it.
+pub fn notify_soon(title: String, body: String) {
+    let _ = std::thread::Builder::new().name("notify".into()).spawn(move || {
+        let _ = notify(&title, &body);
+    });
+}
+
 /// Shows a Windows notification.
 pub fn notify(title: &str, body: &str) -> windows::core::Result<()> {
     use windows::Data::Xml::Dom::XmlDocument;

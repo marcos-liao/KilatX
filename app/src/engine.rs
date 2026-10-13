@@ -968,6 +968,7 @@ async fn run_inner(ctx: &Ctx) -> Result<(), String> {
     // New download, or one that can't resume: (re)start from zero.
     if fresh || !resumable {
         let mut probe = probe(ctx, &url).await?;
+        crate::debug_log!("download", "#{} first answer: size {:?}, resumable {}, name {:?}", ctx.id, probe.size, probe.resumable, probe.name);
         first_resp = probe.resp.take();
         if ctx.cancelled() {
             return Ok(());
@@ -1088,6 +1089,7 @@ async fn run_inner(ctx: &Ctx) -> Result<(), String> {
             for _ in 0..spread.decide(bytes, spawned, conns, left, &ctx.line_peak) {
                 handles.push(spawn(None));
                 spawned += 1;
+                crate::debug_log!("download", "#{} connection {spawned} opened ({} downloaded, {} left)", ctx.id, util::fmt_size(bytes), util::fmt_size(left));
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -1098,6 +1100,7 @@ async fn run_inner(ctx: &Ctx) -> Result<(), String> {
         let done = ctx.item(|it| it.segments.iter().all(|s| s.pos >= s.end))?;
         if !done && range_refused {
             // The server stopped honouring ranges: restart with one connection.
+            crate::debug_log!("download", "#{} server stopped answering ranges: starting over with one connection", ctx.id);
             ctx.item(|it| {
                 it.resumable = false;
                 it.segments.clear();
@@ -1120,6 +1123,7 @@ async fn run_inner(ctx: &Ctx) -> Result<(), String> {
                 Ok(()) => break,
                 Err(e) if attempt < 3 && !ctx.cancelled() && e != REMOVED => {
                     attempt += 1;
+                    crate::debug_log!("download", "#{} single connection failed ({e}), starting over (try {attempt})", ctx.id);
                     tokio::time::sleep(Duration::from_secs(attempt)).await;
                 }
                 Err(e) => return Err(e),
@@ -1243,6 +1247,7 @@ async fn probe(ctx: &Ctx, url: &str) -> Result<Probe, String> {
             Ok(r) => break r,
             Err(e) if attempt < 3 && !ctx.cancelled() && !e.is_builder() => {
                 attempt += 1;
+                crate::debug_log!("download", "#{} first request failed ({}), retry {attempt}", ctx.id, ctx.net(e));
                 sleep_unless_cancelled(ctx, Duration::from_secs(attempt)).await;
             }
             Err(e) => return Err(ctx.net(e)),
@@ -1254,7 +1259,9 @@ async fn probe(ctx: &Ctx, url: &str) -> Result<Probe, String> {
             break;
         }
         let asked = retry_after(&resp);
-        sleep_unless_cancelled(ctx, Duration::from_secs(if asked > 0 { asked } else { 1 << attempt })).await;
+        let wait = if asked > 0 { asked } else { 1 << attempt };
+        crate::debug_log!("download", "#{} server busy (HTTP {}), waiting {wait} s", ctx.id, resp.status().as_u16());
+        sleep_unless_cancelled(ctx, Duration::from_secs(wait)).await;
         resp = ctx.send(url, Some("bytes=0-")).await.map_err(|e| ctx.net(e))?;
     }
     let status = resp.status();
@@ -1343,6 +1350,13 @@ fn claim(ctx: &Ctx) -> Option<usize> {
     };
     let seg = &mut it.segments[i];
     let end = seg.end;
+    crate::debug_log!(
+        "download",
+        "#{} {} segment {i} at {mid} (was {}-{end})",
+        ctx.id,
+        if mid == seg.pos { "took over stalled" } else { "split" },
+        seg.pos
+    );
     seg.end = mid;
     let mut new = Segment::new(mid, end);
     new.active = true;
@@ -1395,6 +1409,7 @@ async fn worker(ctx: Ctx, url: String, part: PathBuf, mut initial: Option<reqwes
                 Err(e) if e.starts_with(TOO_MANY) => {
                     // The server wants fewer connections: drop this one if others are running.
                     let others = ctx.item(|it| it.segments.iter().enumerate().any(|(i, s)| i != idx && s.active))?;
+                    crate::debug_log!("download", "#{} server asked for fewer connections (segment {idx})", ctx.id);
                     if others {
                         break Ok(());
                     }
@@ -1410,6 +1425,7 @@ async fn worker(ctx: Ctx, url: String, part: PathBuf, mut initial: Option<reqwes
                 Err(e) => {
                     let after = ctx.item(|it| it.segments[idx].pos)?;
                     tries = if after > before { 0 } else { tries + 1 };
+                    crate::debug_log!("download", "#{} segment {idx}: {e} (failures in a row: {tries})", ctx.id);
                     if ctx.cancelled() || tries >= MAX_RETRIES {
                         break Err(e);
                     }
@@ -1569,6 +1585,7 @@ fn finish(ctx: &Ctx) -> Result<(), String> {
         util::unique_name(&dir, &name, &[])
     };
     util::move_file(&part, &dir.join(&final_name)).map_err(|e| format!("Cannot finish file: {e}"))?;
+    crate::debug_log!("download", "#{} saved as {}", ctx.id, dir.join(&final_name).display());
     ctx.item(|it| {
         it.file_name = final_name;
         it.status = Status::Complete;

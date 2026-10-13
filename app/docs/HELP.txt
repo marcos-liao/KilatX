@@ -1,0 +1,134 @@
+KILATX HELP
+
+KilatX downloads files with several connections at once, can pause and resume them,
+and takes over the downloads your browser starts.
+
+
+GETTING STARTED
+
+  - Add URL (toolbar): paste one or more links, separated by spaces, then Start download
+    (starts now) or Add to main queue (waits for the queue).
+  - Copy a link to a file anywhere: KilatX notices it and offers to download it
+    (Settings › General › Watch the clipboard).
+  - From the browser: with the KilatX extension, downloads go to KilatX by themselves
+    (see BROWSER below).
+  - Closing the window keeps KilatX running in the notification area (bottom right of
+    the taskbar). Right-click its icon › Exit to quit.
+
+
+THE DOWNLOAD LIST
+
+  - Left side: All downloads, by state (Downloading, Unfinished, Completed), by category
+    (Compressed, Documents, Music, Programs, Video, Other) and by queue.
+  - Click a download to see its details on the right: speed, time left, connections, where
+    it is saved, its address, its queue and its own speed limit.
+  - Segments: each blue piece is the part one connection downloads; the pink line is where
+    that connection started. A finished download shows one full green bar.
+  - Resume / Pause work on the selected download; Stop all pauses everything.
+  - Delete removes the selected download from the list (optionally also the file).
+    Clear done removes all finished downloads from the list (the files stay).
+  - Search (top right) filters the list by name or address.
+
+
+CONNECTIONS AND SPEED
+
+  - KilatX opens up to the number of connections set in Settings › General (8 by default,
+    up to 32). Smart connections: if one connection already fills your internet line,
+    KilatX doesn't open more; it opens them when a server is slow per connection.
+  - Speed limit (toolbar, "No limit"): for all downloads together. A single download can
+    have its own limit in its details.
+  - A link that expired (error 403 or 410): select the download, Change address, paste a
+    fresh link from the website. The download continues where it stopped.
+
+
+QUEUES AND SCHEDULER
+
+  - The Main queue downloads its files one after the other (or more at once, see Scheduler).
+    Start queue / Stop queue in the toolbar.
+  - New queue (left side, under Queues) makes another queue; a download's queue is set in
+    its details.
+  - Scheduler (toolbar): for each queue, how many files at once, start and stop times,
+    days of the week, retries for files that fail, and what to do when it is done
+    (nothing, exit KilatX, or shut down the computer, with 60 seconds to cancel).
+
+
+BROWSER
+
+  - KilatX works with Chrome, Edge, Brave, Vivaldi and Chromium through the KilatX extension.
+  - Install it: Settings › Browser › Add to <your browser>. The browser's extensions page
+    and the extension folder open; turn on Developer mode, click Load unpacked and choose
+    the folder (its path is already copied: paste it).
+  - When the browser starts a download of a file type KilatX handles (Settings › File types),
+    KilatX checks the link first. If it can download it (with the browser's cookies, so
+    logins work), it takes it over; if not (a form, a one-time link), the browser keeps
+    the download, so nothing is lost.
+  - Right-click a link › Download with KilatX sends any link, whatever its type.
+  - The extension's button shows whether it is connected to KilatX, and turns sending
+    on or off.
+  - "Another download manager is also connected": another program takes downloads inside
+    the browser before KilatX sees them. Turn off its browser integration or remove its
+    extension.
+
+
+SETTINGS
+
+  - General: tray, start with Windows, clipboard, notifications, GPU rendering, connections.
+  - File types: which extensions belong to which category, and each category's folder.
+    Also which file types the browser sends to KilatX, and sites it never takes from.
+  - Save to: the main downloads folder, and an optional folder for unfinished parts
+    (for example on a faster drive).
+  - Downloads: what to do when the file already exists (rename, overwrite, skip, ask)
+    or the link is already in the list; the user agent KilatX sends.
+  - Proxy: Windows settings (default), none, HTTP or SOCKS5, with login and a bypass list.
+  - Site logins: user name and password for sites that ask for them (Basic or Digest
+    login). Passwords are encrypted by Windows for your account.
+  - Browser: the browser connection (see BROWSER).
+  - Logs: how much KilatX writes to its log, and where (see TROUBLESHOOTING).
+  - About: version, update check, licenses, privacy policy, source code.
+
+
+UPDATES
+
+  KilatX looks for a new version once a day (Settings › About, can be turned off), or when
+  you press Check for updates. It always asks first: Update now, Later, or Skip this
+  version. Updates are signed; KilatX refuses anything that isn't. Installing needs
+  administrator permission (one Windows prompt). Portable copies open the download page
+  instead.
+
+
+TROUBLESHOOTING
+
+  "Windows protected your PC" when starting the setup
+    KilatX isn't code-signed yet. Click More info › Run anyway, or right-click the file ›
+    Properties › Unblock.
+
+  The browser doesn't send downloads to KilatX
+    Settings › Browser should say Ready. Check that the extension is installed and its
+    button says Connected, that "Let browsers send their downloads to KilatX" is on, and
+    that the file type is listed in Settings › File types. Another download manager
+    connected to the browser can take downloads first.
+
+  A download fails
+    The error is shown in its details. 401: add the site in Settings › Site logins.
+    403 or 410: the link expired, use Change address. "A web page instead of the file":
+    open the link in the browser first, or download it from there.
+
+  The window is blank, white or doesn't answer
+    Settings › General: leave GPU rendering off. If it happens again, KilatX writes
+    "window not answering" with what it was doing into its log.
+
+  Sending a report
+    Settings › Logs › Open logs folder, and attach kilatx.log to a report at
+    https://github.com/marcos-liao/KilatX/issues
+    (Set the level to Detailed first, repeat what went wrong, then send the log.)
+    The log has no passwords or cookies; addresses are written without their query part.
+
+
+COMMAND LINE
+
+  KilatX.exe /d <link> [/d <link2>] [/p <folder>] [/a] [/tray]
+    /d  a link to download     /p  folder to save into
+    /a  add to the main queue without starting     /tray  start in the notification area
+
+
+KilatX is free software (GNU GPL v3): https://github.com/marcos-liao/KilatX

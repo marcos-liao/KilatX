@@ -24,6 +24,13 @@ otherwise %APPDATA%\KilatX):
 Partial downloads (.kilatpart files) stay in the download or temporary folder until they
 finish.
 
+KilatX also keeps a log (logs\kilatx.log in the data folder, or the folder chosen in
+Settings > Logs): when it starts and exits, your Windows version, downloads starting,
+finishing and failing with their file names and addresses (without the part after "?"),
+update checks, and the window not answering. It never contains passwords, cookies or
+login headers. It stays on your computer; KilatX never sends it anywhere. You can attach
+it to a problem report yourself. It is limited to 4 files of 1 MB.
+
 2. WHAT KILATX WRITES TO WINDOWS
   - the program name and icon used for notifications
     (HKEY_CURRENT_USER\Software\Classes\AppUserModelId\KilatX.KilatX);

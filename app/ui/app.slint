@@ -599,18 +599,19 @@ component DetailPanel inherits Rectangle {
                 border-radius: 4px;
                 clip: true;
                 background: Theme.faint;
+                // Whole pixels, so neighbouring segments meet without a dark seam between them.
                 for s in root.d.segments: Rectangle {
-                    x: parent.width * s.x;
-                    width: parent.width * s.w;
+                    x: round(parent.width * s.x / 1px) * 1px;
+                    width: round(parent.width * (s.x + s.w) / 1px) * 1px - self.x;
                     height: parent.height;
                     Rectangle {
                         x: 0;
-                        width: parent.width * s.done;
+                        width: round(parent.width * s.done / 1px) * 1px;
                         height: parent.height;
-                        background: Theme.accent;
+                        background: Theme.state-color(root.d.state);
                     }
-                    // Segment start marker.
-                    Rectangle {
+                    // Where a connection started (not needed at the very start).
+                    if s.x > 0: Rectangle {
                         x: 0;
                         width: 1px;
                         height: parent.height;
@@ -1012,6 +1013,10 @@ export component AppWindow inherits Window {
     in property <string> about-renderer;
     in property <string> about-data;
     in property <string> about-license;
+    // Logs
+    in-out property <int> set-log-level: 2;
+    in-out property <string> set-log-folder;
+    in property <string> log-folder-default;
     // Updates
     in-out property <bool> set-check-updates;
     in property <string> update-check-text;
@@ -1095,6 +1100,8 @@ export component AppWindow inherits Window {
     callback remove-traces();
     callback resolve-conflict(int);
     callback check-updates();
+    callback browse-log-folder();
+    callback open-logs();
     callback update-now();
     callback update-later();
     callback update-skip();
@@ -1179,18 +1186,32 @@ export component AppWindow inherits Window {
                     picked(i) => { root.set-global-limit(i); }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                VerticalLayout {
-                    alignment: center;
-                    IconButton {
-                        icon: @image-url("icons/gear.svg");
-                        clicked => { root.open-settings(); }
+                ToolButton {
+                    width: 62px;
+                    icon: @image-url("icons/help.svg");
+                    text: "Help";
+                    clicked => { root.show-document(5); }
+                }
+                ToolButton {
+                    width: 62px;
+                    icon: @image-url("icons/info.svg");
+                    text: "About";
+                    clicked => {
+                        root.open-settings();
+                        root.settings-page = 8;
                     }
                 }
-                Rectangle { width: 8px; }
+                ToolButton {
+                    width: 62px;
+                    icon: @image-url("icons/gear.svg");
+                    text: "Settings";
+                    clicked => { root.open-settings(); }
+                }
+                Rectangle { width: 10px; }
                 VerticalLayout {
                     alignment: center;
                     LineEdit {
-                        width: 230px;
+                        width: 190px;
                         placeholder-text: "Search downloads";
                         text <=> root.search-text;
                         edited => { root.refresh(); }
@@ -1512,7 +1533,7 @@ export component AppWindow inherits Window {
                 spacing: 2px;
                 alignment: start;
                 Label { text: "Settings"; font-size: 19px; font-weight: 600; height: 40px; }
-                for page[i] in ["General", "File types", "Save to", "Downloads", "Proxy", "Site logins", "Browser", "About"]: SideItem {
+                for page[i] in ["General", "File types", "Save to", "Downloads", "Proxy", "Site logins", "Browser", "Logs", "About"]: SideItem {
                     label: page;
                     show-count: false;
                     dot: transparent;
@@ -1837,8 +1858,54 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // About
+                // Logs
                 if root.settings-page == 7: VerticalLayout {
+                    spacing: 10px;
+                    Label { text: "Logs"; font-size: 16px; font-weight: 600; }
+                    Text {
+                        text: "KilatX writes down what it does (start and exit, downloads starting, finishing and failing, update checks, the window not answering), so a problem can be found later. Cookies, passwords and login headers are never written; addresses are written without their query part.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    FieldRow {
+                        label: "Level";
+                        ComboBox {
+                            width: 260px;
+                            model: ["Errors only", "Warnings and errors", "Normal (recommended)", "Detailed (for troubleshooting)"];
+                            current-index <=> root.set-log-level;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Text {
+                        text: "Detailed adds what every connection does (requests, splits, retries, take-overs). Use it while looking into a problem; the log grows faster.";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    FieldRow {
+                        label: "Folder";
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            text <=> root.set-log-folder;
+                            placeholder-text: root.log-folder-default;
+                        }
+                        Button { text: "Browse…"; clicked => { root.browse-log-folder(); } }
+                    }
+                    Text {
+                        text: "Empty: the logs folder inside KilatX's data folder. The newest log is kilatx.log; older parts are kept as kilatx.1.log to kilatx.3.log (1 MB each).";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        Button { text: "Open logs folder"; clicked => { root.open-logs(); } }
+                    }
+                }
+
+                // About
+                if root.settings-page == 8: VerticalLayout {
                     spacing: 10px;
                     HorizontalLayout {
                         spacing: 14px;

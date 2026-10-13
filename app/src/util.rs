@@ -124,7 +124,14 @@ pub fn write_at(file: &File, mut buf: &[u8], mut offset: u64) -> io::Result<()> 
 
 /// Appends "kind<TAB>detail" to the file named by KILATX_EVENT_LOG, if set.
 /// Lets automated tests see things that only happen on screen (dialogs, notifications).
+/// Also goes into KilatX's own log (logs\kilatx.log).
 pub fn event_log(kind: &str, detail: &str) {
+    crate::log::info(kind, detail);
+    test_event(kind, detail);
+}
+
+/// Only the test file (KILATX_EVENT_LOG), for lines already written to the log otherwise.
+pub fn test_event(kind: &str, detail: &str) {
     let Some(path) = std::env::var_os("KILATX_EVENT_LOG") else { return };
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = std::io::Write::write_all(&mut f, format!("{kind}	{detail}

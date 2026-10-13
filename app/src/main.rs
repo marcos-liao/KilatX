@@ -10,6 +10,8 @@ mod engine;
 mod limiter;
 mod setup_hooks;
 mod update;
+mod watchdog;
+mod log;
 #[cfg(test)]
 mod scenario_tests;
 #[cfg(test)]
@@ -82,6 +84,8 @@ struct UiState {
     browser_pending: HashMap<String, browser::BrowserDownload>,
     /// The newer version shown in the update dialog.
     update_release: Option<update::Release>,
+    /// Copied text being read on the helper thread.
+    clip_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -111,8 +115,23 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     let data_dir = store::data_dir();
     let _ = std::fs::create_dir_all(&data_dir);
+    log::init(&data_dir);
     let saved = store::load(&data_dir);
-    util::event_log("start", if setup_hooks::is_elevated() { "elevated=1" } else { "elevated=0" });
+    log::configure(&saved.settings.log_level, &saved.settings.log_folder, &data_dir);
+    log::info(
+        "start",
+        &format!(
+            "KilatX {} {} on {}, {}, {} downloads in the list",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::ARCH,
+            windows_version(),
+            if store::is_portable() { "portable" } else { "installed" },
+            saved.items.len()
+        ),
+    );
+    util::test_event("start", if setup_hooks::is_elevated() { "elevated=1" } else { "elevated=0" });
+    // Writes into the log if the window ever stops answering, and what it was doing.
+    watchdog::start();
 
     // Software rendering unless GPU rendering was turned on. If the window didn't
     // come up last time with the GPU (no usable OpenGL, as in some VMs or over
@@ -187,6 +206,7 @@ fn main() -> Result<(), slint::PlatformError> {
         conflict_id: None,
         browser_pending: HashMap::new(),
         update_release: None,
+        clip_rx: None,
     }));
     {
         let st = state.borrow();
@@ -233,6 +253,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_add_clicked({
         let ui = ui.as_weak();
         move || {
+            let _b = watchdog::busy("ui:add_clicked");
             let Some(ui) = ui.upgrade() else { return };
             // Pre-fill with a link from the clipboard.
             let clip = arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default();
@@ -249,6 +270,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_browse_folder({
         let ui = ui.as_weak();
         move || {
+            let _b = watchdog::busy("ui:browse_folder");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(dir) = rfd::FileDialog::new().set_title("Save downloads to").pick_folder() {
                 ui.set_add_folder(dir.to_string_lossy().to_string().into());
@@ -264,6 +286,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let refresh = refresh.clone();
         let save_all = save_all.clone();
         move |start_now| {
+            let _b = watchdog::busy("ui:start_new");
             let Some(ui) = ui.upgrade() else { return };
             let text = ui.get_add_url().to_string();
             let mut urls: Vec<&str> = text
@@ -340,6 +363,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move |id| {
+            let _b = watchdog::busy("ui:resume");
             if id >= 0 {
                 engine.start(id as u64);
             }
@@ -351,6 +375,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move |id| {
+            let _b = watchdog::busy("ui:pause");
             if id >= 0 {
                 engine.pause(id as u64);
             }
@@ -362,6 +387,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:pause_all");
             engine.pause_all();
             refresh();
         }
@@ -372,6 +398,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:confirm_delete");
             let Some(ui) = ui.upgrade() else { return };
             let id = ui.get_selected_id();
             if id >= 0 {
@@ -387,6 +414,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:delete_completed");
             engine.clear_completed();
             refresh();
         }
@@ -395,6 +423,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_open_file({
         let engine = engine.clone();
         move |id| {
+            let _b = watchdog::busy("ui:open_file");
             let Some(item) = find(&engine, id) else { return };
             if item.status == Status::Complete && item.final_path().exists() {
                 let _ = open::that_detached(item.final_path());
@@ -407,6 +436,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_open_folder({
         let engine = engine.clone();
         move |id| {
+            let _b = watchdog::busy("ui:open_folder");
             if let Some(item) = find(&engine, id) {
                 reveal(&item);
             }
@@ -417,6 +447,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let state = state.clone();
         move |id| {
+            let _b = watchdog::busy("ui:copy_url");
             if let Some(item) = find(&engine, id) {
                 state.borrow_mut().ignore_clip = true;
                 if let Ok(mut c) = arboard::Clipboard::new() {
@@ -430,6 +461,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let refresh = refresh.clone();
         move |id| {
+            let _b = watchdog::busy("ui:select");
             if let Some(ui) = ui.upgrade() {
                 ui.set_selected_id(id);
             }
@@ -442,6 +474,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:start_queue");
             let Some(ui) = ui.upgrade() else { return };
             engine.start_queue(active_queue(&ui));
             refresh();
@@ -453,6 +486,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:stop_queue");
             let Some(ui) = ui.upgrade() else { return };
             engine.stop_queue(active_queue(&ui));
             refresh();
@@ -465,6 +499,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:open_scheduler");
             let Some(ui) = ui.upgrade() else { return };
             let active = active_queue(&ui);
             let index = engine.queues().iter().position(|q| q.id == active).unwrap_or(0);
@@ -480,6 +515,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:new_queue");
             let Some(ui) = ui.upgrade() else { return };
             let n = engine.queues().len() + 1;
             engine.create_queue(&format!("Queue {n}"));
@@ -495,6 +531,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move |index| {
+            let _b = watchdog::busy("ui:sched_select");
             let Some(ui) = ui.upgrade() else { return };
             {
                 let mut st = state.borrow_mut();
@@ -511,6 +548,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:sched_new");
             let Some(ui) = ui.upgrade() else { return };
             {
                 let mut st = state.borrow_mut();
@@ -529,6 +567,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:sched_delete");
             let Some(ui) = ui.upgrade() else { return };
             {
                 let mut st = state.borrow_mut();
@@ -550,6 +589,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:sched_start_now");
             let Some(ui) = ui.upgrade() else { return };
             {
                 let st = state.borrow();
@@ -567,6 +607,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:sched_stop_now");
             if let Some(id) = state.borrow().sched_queue {
                 engine.stop_queue(id);
             }
@@ -581,6 +622,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let refresh = refresh.clone();
         let save_all = save_all.clone();
         move || {
+            let _b = watchdog::busy("ui:sched_close");
             let Some(ui) = ui.upgrade() else { return };
             save_sched(&ui, &engine, &state.borrow());
             ui.set_show_scheduler(false);
@@ -595,6 +637,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let refresh = refresh.clone();
         let save_all = save_all.clone();
         move |index| {
+            let _b = watchdog::busy("ui:set_global_limit");
             let limit = limit_at(index);
             engine.set_global_limit(limit);
             settings.borrow_mut().global_limit = limit;
@@ -607,6 +650,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move |id, index| {
+            let _b = watchdog::busy("ui:set_item_limit");
             if id >= 0 {
                 engine.set_item_limit(id as u64, limit_at(index));
             }
@@ -618,6 +662,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move |id, index| {
+            let _b = watchdog::busy("ui:set_item_queue");
             if id >= 0 {
                 // Index 0 is "No queue"; the rest follow the queue list.
                 let queue = (index > 0).then(|| engine.queues().get(index as usize - 1).map(|q| q.id)).flatten();
@@ -631,6 +676,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move |id, earlier| {
+            let _b = watchdog::busy("ui:move_item");
             if id >= 0 {
                 engine.move_in_queue(id as u64, earlier);
             }
@@ -642,6 +688,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let engine = engine.clone();
         move |id| {
+            let _b = watchdog::busy("ui:change_address");
             let Some(ui) = ui.upgrade() else { return };
             let Some(item) = find(&engine, id) else { return };
             // A running download has to stop before its address can change.
@@ -657,6 +704,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:confirm_change_url");
             let Some(ui) = ui.upgrade() else { return };
             let id = ui.get_selected_id();
             if id < 0 {
@@ -685,6 +733,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move || {
+            let _b = watchdog::busy("ui:cancel_shutdown");
             state.borrow_mut().shutdown_at = None;
             if let Some(ui) = ui.upgrade() {
                 ui.set_show_shutdown(false);
@@ -731,9 +780,9 @@ fn main() -> Result<(), slint::PlatformError> {
                 if !settings.borrow().tray_hint_shown {
                     settings.borrow_mut().tray_hint_shown = true;
                     save_all();
-                    let _ = desktop::notify(
-                        "KilatX is still running",
-                        "Downloads continue in the notification area. Right-click the KilatX icon to exit.",
+                    desktop::notify_soon(
+                        "KilatX is still running".into(),
+                        "Downloads continue in the notification area. Right-click the KilatX icon to exit.".into(),
                     );
                 }
             } else {
@@ -755,6 +804,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let show_window = show_window.clone();
         move || {
+            let _b = watchdog::busy("ui:add_url");
             show_window();
             if let Some(ui) = ui.upgrade() {
                 ui.invoke_add_clicked();
@@ -765,6 +815,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:start_queue");
             engine.start_queue(MAIN_QUEUE);
             refresh();
         }
@@ -773,6 +824,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:pause_all");
             engine.pause_all();
             refresh();
         }
@@ -790,6 +842,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let refresh = refresh.clone();
         let show_window = show_window.clone();
         move |json| {
+            let _b = watchdog::busy("ui:external_args");
             let Some(ui) = ui.upgrade() else { return };
             let args: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
             // Setup or the uninstaller asks KilatX to exit (progress is saved on the way out).
@@ -900,6 +953,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let data_dir = data_dir.clone();
         move || {
+            let _b = watchdog::busy("ui:open_settings");
             let Some(ui) = ui.upgrade() else { return };
             let s = settings.borrow();
             ui.set_set_close_to_tray(s.close_to_tray);
@@ -919,6 +973,9 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_about_data(data_dir.display().to_string().into());
             ui.set_about_license("Free and open source: GNU General Public License v3".into());
             ui.set_set_check_updates(s.check_updates);
+            ui.set_set_log_level(log::LEVELS.iter().position(|l| *l == s.log_level).unwrap_or(2) as i32);
+            ui.set_set_log_folder(s.log_folder.as_str().into());
+            ui.set_log_folder_default(log::dir(&data_dir).display().to_string().into());
             if !ui.get_update_checking() {
                 ui.set_update_check_text(SharedString::new());
             }
@@ -934,6 +991,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_cat_edit_ext({
         let state = state.clone();
         move |i, text| {
+            let _b = watchdog::busy("ui:cat_edit_ext");
             if let Some(c) = state.borrow_mut().pending.as_mut().and_then(|p| p.categories.get_mut(i as usize)) {
                 c.extensions = config::parse_list(&text);
             }
@@ -942,6 +1000,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_cat_edit_folder({
         let state = state.clone();
         move |i, text| {
+            let _b = watchdog::busy("ui:cat_edit_folder");
             if let Some(c) = state.borrow_mut().pending.as_mut().and_then(|p| p.categories.get_mut(i as usize)) {
                 let t = text.trim();
                 c.folder = (!t.is_empty()).then(|| PathBuf::from(t));
@@ -952,6 +1011,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move |i| {
+            let _b = watchdog::busy("ui:cat_browse");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(dir) = rfd::FileDialog::new().set_title("Folder for this category").pick_folder() {
                 if let Some(p) = state.borrow_mut().pending.as_mut() {
@@ -967,6 +1027,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move |i| {
+            let _b = watchdog::busy("ui:cat_delete");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(p) = state.borrow_mut().pending.as_mut() {
                 if (i as usize) < p.categories.len() && !is_builtin_category(&p.categories[i as usize].name) {
@@ -980,6 +1041,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move |name, exts| {
+            let _b = watchdog::busy("ui:cat_add");
             let Some(ui) = ui.upgrade() else { return };
             let name = name.trim().to_string();
             let mut st = state.borrow_mut();
@@ -997,6 +1059,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_browse_base({
         let ui = ui.as_weak();
         move || {
+            let _b = watchdog::busy("ui:browse_base");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(dir) = rfd::FileDialog::new().set_title("Downloads folder").pick_folder() {
                 ui.set_base_folder(dir.display().to_string().into());
@@ -1006,6 +1069,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_browse_temp({
         let ui = ui.as_weak();
         move || {
+            let _b = watchdog::busy("ui:browse_temp");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(dir) = rfd::FileDialog::new().set_title("Temporary folder").pick_folder() {
                 ui.set_temp_folder(dir.display().to_string().into());
@@ -1016,6 +1080,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move |site, user, pass| {
+            let _b = watchdog::busy("ui:login_add");
             let Some(ui) = ui.upgrade() else { return };
             let site = site.trim().to_string();
             if site.is_empty() || user.trim().is_empty() {
@@ -1034,6 +1099,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move |i| {
+            let _b = watchdog::busy("ui:login_delete");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(p) = state.borrow_mut().pending.as_mut() {
                 if (i as usize) < p.logins.len() {
@@ -1049,6 +1115,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let state = state.clone();
         move || {
+            let _b = watchdog::busy("ui:test_connection");
             let Some(ui_strong) = ui.upgrade() else { return };
             let base = state.borrow().pending.clone().unwrap_or_default();
             let opts = match options_from_ui(&ui_strong, &base) {
@@ -1071,10 +1138,12 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let data_dir = data_dir.clone();
         move |which| {
+            let _b = watchdog::busy("ui:show_document");
             let Some(ui) = ui.upgrade() else { return };
             let (title, text) = match which {
                 0 => ("License: GNU GPL v3", include_str!("../../LICENSE")),
                 1 => ("Privacy policy", include_str!("../docs/PRIVACY.txt")),
+                5 => ("Help", include_str!("../docs/HELP.txt")),
                 3 => {
                     let _ = open::that_detached(SOURCE_URL);
                     return;
@@ -1099,6 +1168,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let refresh = refresh.clone();
         move |choice| {
+            let _b = watchdog::busy("ui:resolve_conflict");
             let Some(ui) = ui.upgrade() else { return };
             if let Some(id) = state.borrow_mut().conflict_id.take() {
                 let choice = match choice {
@@ -1117,6 +1187,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui = ui.as_weak();
         let data_dir = data_dir.clone();
         move |index| {
+            let _b = watchdog::busy("ui:browser_install");
             let Some(ui) = ui.upgrade() else { return };
             let Some(b) = browser::BROWSERS.get(index as usize) else { return };
             let message = match browser::write_extension(&data_dir) {
@@ -1142,6 +1213,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_browser_open_folder({
         let data_dir = data_dir.clone();
         move || {
+            let _b = watchdog::busy("ui:browser_open_folder");
             if let Ok(dir) = browser::write_extension(&data_dir) {
                 let _ = open::that_detached(dir);
             }
@@ -1152,6 +1224,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let save_all = save_all.clone();
         let data_dir = data_dir.clone();
         move || {
+            let _b = watchdog::busy("ui:remove_traces");
             browser::unregister(&data_dir, browser::HOST_NAME);
             desktop::remove_traces();
             {
@@ -1175,6 +1248,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let save_all = save_all.clone();
         let refresh = refresh.clone();
         move || {
+            let _b = watchdog::busy("ui:save_settings");
             let Some(ui) = ui.upgrade() else { return };
             let base = state.borrow().pending.clone().unwrap_or_default();
             let opts = match options_from_ui(&ui, &base) {
@@ -1213,6 +1287,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
                 s.browser_capture = capture;
                 s.check_updates = ui.get_set_check_updates();
+                let level = log::LEVELS.get(ui.get_set_log_level().max(0) as usize).copied().unwrap_or("info");
+                let folder = ui.get_set_log_folder().trim().to_string();
+                if level != s.log_level || folder != s.log_folder {
+                    s.log_level = level.to_string();
+                    s.log_folder = folder;
+                    let used = log::configure(&s.log_level, &s.log_folder, &data_dir);
+                    log::info("log", &format!("level {level}, folder {}", used.display()));
+                }
             }
             ui.set_add_conns(settings.borrow().connections as i32);
             ui.set_show_settings(false);
@@ -1221,11 +1303,32 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
+    ui.on_browse_log_folder({
+        let ui = ui.as_weak();
+        move || {
+            let _b = watchdog::busy("ui:browse_log_folder");
+            let Some(ui) = ui.upgrade() else { return };
+            if let Some(dir) = rfd::FileDialog::new().set_title("Folder for KilatX's log").pick_folder() {
+                ui.set_set_log_folder(dir.display().to_string().into());
+            }
+        }
+    });
+    ui.on_open_logs({
+        let data_dir = data_dir.clone();
+        move || {
+            let _b = watchdog::busy("ui:open_logs");
+            let dir = log::current_folder().unwrap_or_else(|| log::dir(&data_dir));
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = open::that_detached(&dir);
+        }
+    });
+
     // Updates: KilatX looks for a new version (once a day, or when asked) and asks first.
     ui.on_check_updates({
         let ui = ui.as_weak();
         let engine = engine.clone();
         move || {
+            let _b = watchdog::busy("ui:check_updates");
             let Some(ui) = ui.upgrade() else { return };
             ui.set_update_checking(true);
             ui.set_update_check_text(SharedString::new());
@@ -1238,6 +1341,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         let save_all = save_all.clone();
         move |json| {
+            let _b = watchdog::busy("ui:update_event");
             let Some(ui) = ui.upgrade() else { return };
             let ev: serde_json::Value = serde_json::from_str(&json).unwrap_or_default();
             let text = |k: &str| ev[k].as_str().unwrap_or_default().to_string();
@@ -1274,7 +1378,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             ui.set_update_portable(store::is_portable());
                             ui.set_show_update(true);
                             if !manual && settings.borrow().notify {
-                                let _ = desktop::notify(&format!("KilatX {} is available", r.version), "Open KilatX to update.");
+                                desktop::notify_soon(format!("KilatX {} is available", r.version), "Open KilatX to update.".into());
                             }
                             state.borrow_mut().update_release = Some(r);
                             // Debug builds only: end-to-end tests accept the update without a click.
@@ -1303,6 +1407,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let engine = engine.clone();
         let state = state.clone();
         move || {
+            let _b = watchdog::busy("ui:update_now");
             let Some(ui_strong) = ui.upgrade() else { return };
             let Some(release) = state.borrow().update_release.clone() else { return };
             if store::is_portable() {
@@ -1341,6 +1446,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_update_later({
         let ui = ui.as_weak();
         move || {
+            let _b = watchdog::busy("ui:update_later");
             if let Some(ui) = ui.upgrade() {
                 ui.set_show_update(false);
             }
@@ -1351,6 +1457,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let settings = settings.clone();
         let save_all = save_all.clone();
         move || {
+            let _b = watchdog::busy("ui:update_skip");
             let Some(ui) = ui.upgrade() else { return };
             settings.borrow_mut().skipped_version = ui.get_update_version().to_string();
             save_all();
@@ -1383,16 +1490,23 @@ fn main() -> Result<(), slint::PlatformError> {
         let repaint_hooked = std::cell::Cell::new(false);
         move || {
             let Some(ui) = ui.upgrade() else { return };
+            watchdog::beat();
+            let _tick = watchdog::busy("tick");
             // Once the window exists: draw all of it again whenever Windows asks for that.
             if !repaint_hooked.get() {
                 let weak = ui.as_weak();
                 repaint_hooked.set(desktop::watch_os_repaints(move || {
+                    let _b = watchdog::busy("repaint request");
                     if let Some(ui) = weak.upgrade() {
                         ui.set_repaint_nonce(ui.get_repaint_nonce().wrapping_add(1));
                     }
                 }));
             }
-            for event in engine.tick(chrono::Local::now()) {
+            let ticked = {
+                let _b = watchdog::busy("tick:engine");
+                engine.tick(chrono::Local::now())
+            };
+            for event in ticked {
                 let QueueEvent::Finished { name, on_done } = event;
                 match on_done {
                     OnDone::Nothing => {}
@@ -1420,50 +1534,79 @@ fn main() -> Result<(), slint::PlatformError> {
                     return;
                 }
             }
-            let items = engine.snapshot();
+            let items = {
+                let _b = watchdog::busy("tick:snapshot");
+                engine.snapshot()
+            };
 
             // Notify when a download finishes or fails.
             {
+                let _b = watchdog::busy("tick:notify");
                 let notify = settings.borrow().notify;
                 let mut st = state.borrow_mut();
                 for it in &items {
                     // Downloads present at start-up are pre-filled; anything new counts as
                     // just queued, so one that finished within half a second still notifies.
                     let before = st.last_status.insert(it.id, it.status).unwrap_or(Status::Queued);
-                    if !notify || before == it.status {
+                    if before == it.status {
+                        continue;
+                    }
+                    let size = it.size.map(util::fmt_size).unwrap_or_else(|| "size unknown".into());
+                    let line = format!("#{} {:?} -> {:?}: {} ({size}) {}", it.id, before, it.status, it.file_name, it.url);
+                    match it.status {
+                        Status::Error => log::warn("download", &format!("{line}: {}", it.error.as_deref().unwrap_or("unknown error"))),
+                        _ => log::info("download", &line),
+                    }
+                    if !notify {
                         continue;
                     }
                     let size = it.size.map(util::fmt_size).unwrap_or_default();
-                    util::event_log("notify", &format!("{:?}	{}", it.status, it.file_name));
-                    let _ = match it.status {
-                        Status::Complete => desktop::notify("Download complete", &format!("{}  ·  {size}", it.file_name)),
-                        Status::Error => desktop::notify(
-                            "Download failed",
-                            &format!("{}: {}", it.file_name, it.error.as_deref().unwrap_or("unknown error")),
+                    util::test_event("notify", &format!("{:?}	{}", it.status, it.file_name));
+                    match it.status {
+                        Status::Complete => desktop::notify_soon("Download complete".into(), format!("{}  ·  {size}", it.file_name)),
+                        Status::Error => desktop::notify_soon(
+                            "Download failed".into(),
+                            format!("{}: {}", it.file_name, it.error.as_deref().unwrap_or("unknown error")),
                         ),
-                        _ => Ok(()),
-                    };
+                        _ => {}
+                    }
                 }
             }
 
-            // Clipboard: a copied link to a file opens the Add dialog.
+            // Clipboard: a copied link to a file opens the Add dialog. The text is read on a
+            // helper thread: reading waits for the program that owns the copied data, and that
+            // program may be busy or hung; KilatX's window must not wait with it.
             let offer = {
+                let _b = watchdog::busy("tick:clipboard");
                 let mut st = state.borrow_mut();
                 let seq = desktop::clipboard_sequence();
                 let changed = seq != st.clip_seq;
                 st.clip_seq = seq;
                 let ours = std::mem::take(&mut st.ignore_clip) && changed;
-                if changed && !ours && settings.borrow().watch_clipboard && !ui.get_show_add() {
-                    let text = arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default();
+                if changed && !ours && settings.borrow().watch_clipboard && !ui.get_show_add() && st.clip_rx.is_none() {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    st.clip_rx = Some(rx);
+                    let _ = std::thread::Builder::new().name("clipboard".into()).spawn(move || {
+                        let _ = tx.send(arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default());
+                    });
+                }
+                let read = match st.clip_rx.as_ref().map(|rx| rx.try_recv()) {
+                    Some(Ok(text)) => Some(text),
+                    Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => Some(String::new()),
+                    _ => None,
+                };
+                read.and_then(|text| {
+                    st.clip_rx = None;
                     let text = text.trim().to_string();
-                    let new_link = looks_like_download(&text, &engine.options()) && text != st.last_offered && !items.iter().any(|i| i.url == text);
+                    let new_link = !ui.get_show_add()
+                        && looks_like_download(&text, &engine.options())
+                        && text != st.last_offered
+                        && !items.iter().any(|i| i.url == text);
                     new_link.then(|| {
                         st.last_offered = text.clone();
                         text
                     })
-                } else {
-                    None
-                }
+                })
             };
             if let Some(url) = offer {
                 util::event_log("clipboard-offer", &url);
@@ -1500,8 +1643,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 due
             };
             if save_now {
+                let _b = watchdog::busy("tick:save");
                 save_all();
             }
+            let _b = watchdog::busy("tick:refresh");
             refresh();
         }
     });
@@ -1527,6 +1672,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let _ = tray.hide();
     engine.shutdown();
     save_all();
+    log::info("exit", "settings and downloads saved");
     let _ = std::fs::remove_file(&marker);
     Ok(())
 }
@@ -1542,6 +1688,17 @@ fn absolutize_args(mut args: Vec<String>) -> Vec<String> {
         }
     }
     args
+}
+
+/// "Windows 11 24H2 (build 26100)", for the log.
+fn windows_version() -> String {
+    let Ok(key) = windows_registry::LOCAL_MACHINE.open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") else {
+        return "Windows".into();
+    };
+    let build: u32 = key.get_string("CurrentBuild").ok().and_then(|b| b.parse().ok()).unwrap_or(0);
+    let release = key.get_string("DisplayVersion").unwrap_or_default();
+    let name = if build >= 22000 { "Windows 11" } else { "Windows 10" };
+    format!("{name} {release} (build {build})")
 }
 
 /// Checks for an update in the background; the answer comes back as an `update-event`.
@@ -1897,6 +2054,8 @@ fn to_row(it: &Item, st: &UiState) -> RowData {
 fn to_detail(it: &Item, st: &UiState) -> DetailData {
     let speed = st.speeds.get(&it.id).copied().unwrap_or(0.0);
     let segments: Vec<SegBar> = match it.size {
+        // Finished: one full bar, like the progress bar above it.
+        _ if it.status == Status::Complete => vec![SegBar { x: 0.0, w: 1.0, done: 1.0 }],
         Some(size) if size > 0 && it.resumable => it
             .segments
             .iter()

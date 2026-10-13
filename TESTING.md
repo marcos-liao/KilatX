@@ -2,7 +2,7 @@
 
 Every download model KilatX has to handle, with an automated test for each, plus a
 real-server check. Last full run: **13 Oct 2026, v0.5.0: all suites passed**
-(26 download + 22 options + 22 browser scenarios, engine and unit tests, 2 detection tests, 13 update tests: 102/102),
+(26 download + 22 options + 22 browser scenarios, engine and unit tests, 2 detection tests, 3 log/watchdog tests, 13 update tests: 105/105),
 16/16 desktop end-to-end, 25/25 browser host (real process), 57/57 real browsers,
 91/91 installer, MSI, company browser policy and updater (two UAC prompts), 5/5 repaint.
 
@@ -141,6 +141,15 @@ The test paints the window magenta, invalidates it the way Windows does, and cou
 | No repaint loop (idle CPU with the window open) | ✅ | ✅ |
 
 Clicks still reach the buttons under the full-window repaint layer (checked: "Add URL" opens the dialog).
+
+## Log (v0.5.1)
+
+| Check | Result |
+|---|---|
+| Addresses lose query strings and `user:password@`; no token in the log of a real download with `?token=…` | ✅ |
+| Log rotation keeps kilatx.log + 3 older parts of 1 MB | ✅ |
+| Watchdog: a UI thread without heartbeat for more than 5 s is written down with what it was busy with, and again when it answers | ✅ |
+| Detailed level: first answer, connections opened, segment splits, file saved; Normal level: start, exit, every download state change with size | ✅ |
 
 ## Engine tests (`engine::tests`, local range server)
 

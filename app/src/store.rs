@@ -48,6 +48,16 @@ pub struct Settings {
     /// "Skip this version": not offered again (a later version is).
     #[serde(default)]
     pub skipped_version: String,
+    /// How much goes into KilatX's log: "error", "warning", "info" or "debug".
+    #[serde(default = "info")]
+    pub log_level: String,
+    /// Folder for the log; empty = `logs` in the data folder.
+    #[serde(default)]
+    pub log_folder: String,
+}
+
+fn info() -> String {
+    "info".into()
 }
 
 fn yes() -> bool {
@@ -72,6 +82,8 @@ impl Default for Settings {
             check_updates: true,
             last_update_check: 0,
             skipped_version: String::new(),
+            log_level: info(),
+            log_folder: String::new(),
         }
     }
 }
