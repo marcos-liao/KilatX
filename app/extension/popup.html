@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; --bg: #ffffff; --fg: #1b1b1f; --muted: #6b6b75; --line: #e4e4ea; --accent: #2f6fed; --bad: #c4314b; --good: #2e8b57; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #202024; --fg: #ececf1; --muted: #a0a0ab; --line: #34343a; --accent: #6b9bff; --bad: #ff6b81; --good: #5fd08f; } }
+  body { margin: 0; width: 300px; background: var(--bg); color: var(--fg); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; }
+  header img { width: 28px; height: 28px; }
+  header b { font-size: 15px; }
+  section { padding: 10px 16px; border-top: 1px solid var(--line); }
+  .status { display: flex; gap: 8px; align-items: flex-start; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--muted); }
+  .dot.ok { background: var(--good); } .dot.bad { background: var(--bad); }
+  .muted { color: var(--muted); font-size: 12px; }
+  label.switch { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  input[type=checkbox] { width: 34px; height: 18px; accent-color: var(--accent); }
+  button { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  #last { word-break: break-all; }
+</style>
+</head>
+<body>
+  <header><img src="icons/icon48.png" alt=""><b>KilatX</b></header>
+  <section class="status"><span id="dot" class="dot"></span><div><div id="state">Checking…</div><div id="detail" class="muted"></div></div></section>
+  <section><label class="switch"><span>Send downloads to KilatX</span><input id="capture" type="checkbox"></label>
+    <div class="muted">Which file types are sent is set in KilatX › Settings › File types.</div></section>
+  <section id="lastbox" hidden><div class="muted">Last download</div><div id="last"></div></section>
+  <section><button id="open">Open KilatX</button></section>
+  <script src="popup.js"></script>
+</body>
+</html>

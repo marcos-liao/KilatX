@@ -1,0 +1,74 @@
+KILATX PRIVACY POLICY
+
+Last updated: 12 October 2026
+
+Summary: KilatX collects nothing. It has no accounts, no license keys, no usage statistics,
+no crash reports and no advertising. Everything it stores stays on your computer.
+KilatX is free and open source (GNU GPL v3): anyone can check this in its source code at
+https://github.com/marcos-liao/KilatX
+
+1. WHAT KILATX STORES ON YOUR COMPUTER
+In its data folder (shown in Settings > About; "data" next to KilatX.exe in portable mode,
+otherwise %APPDATA%\KilatX):
+  - your download list: links, file names, folders, sizes and progress;
+  - your settings, including queues, folders, proxy and site logins;
+  - passwords for site logins and proxies, encrypted with Windows (DPAPI) so that only
+    your Windows account on this computer can read them;
+  - the speed of your internet line as measured by KilatX, used to choose how many
+    connections to open;
+  - for downloads handed over by your browser: the page they came from (referrer), your
+    browser's user agent and the cookies the browser holds for that download's site,
+    so the site sees the same login. Cookies are encrypted with Windows (DPAPI) like
+    passwords, are sent only to that download's site, and are deleted from KilatX
+    when the download is complete.
+Partial downloads (.kilatpart files) stay in the download or temporary folder until they
+finish.
+
+2. WHAT KILATX WRITES TO WINDOWS
+  - the program name and icon used for notifications
+    (HKEY_CURRENT_USER\Software\Classes\AppUserModelId\KilatX.KilatX);
+  - if you turn on "Start KilatX when Windows starts", an entry under
+    HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run;
+  - if browser integration is on (the default), the registration that lets Chrome, Edge,
+    Brave, Vivaldi and Chromium reach KilatX
+    (HKEY_CURRENT_USER\Software\<browser>\NativeMessagingHosts\app.kilatx.host), and
+    the KilatX extension's files in the data folder;
+  - when installed with KilatX Setup: the program in C:\Program Files\KilatX (or the
+    folder you chose), Start menu (and, if chosen, desktop) shortcuts for all users of the
+    PC, and the entry in Settings > Apps.
+These can be removed by turning the option off, with "Remove traces and exit"
+(Settings > Browser), or by uninstalling KilatX from Settings > Apps. Uninstalling removes
+the entries of the Windows account that uninstalls; other accounts on the same PC that
+used KilatX may keep a harmless start-with-Windows or browser entry that points to the
+removed program (Windows ignores it).
+
+3. NETWORK CONNECTIONS
+KilatX only connects to:
+  - the servers of the files you download (and their redirects);
+  - the proxy you configured, if any;
+  - a Microsoft test address (www.msftconnecttest.com) when you press "Test connection";
+  - GitHub, to look for a new version: once a day if "Check for updates automatically"
+    is on (Settings > About, you can turn it off), or when you press "Check for updates".
+    GitHub receives an ordinary web request (which shows the KilatX version and, like any
+    web server, your IP address); nothing else is sent. If you choose to update, the new
+    setup is downloaded from GitHub too. GitHub's own privacy statement applies to it.
+
+4. SITE LOGINS
+A saved login is sent only to the sites that match its pattern. It is never sent to
+other sites.
+
+5. BROWSER EXTENSION
+The KilatX extension runs only in the browsers you add it to. When the browser starts a
+download, the extension gives KilatX the download's address, file name, size, referrer,
+user agent and the cookies for that address, so KilatX can check whether it can download
+the file. If it can't, the browser keeps the download. The extension does not read the
+pages you visit, your history or your other cookies, and sends nothing anywhere except
+to KilatX on your own computer.
+
+6. CLIPBOARD
+When "Watch the clipboard" is on, KilatX reads copied text on your computer to offer
+download links. The text is not stored or sent anywhere.
+
+7. CHANGES AND QUESTIONS
+If this policy changes, the new version is included with KilatX and published with its
+source code. Questions: open an issue at https://github.com/marcos-liao/KilatX/issues

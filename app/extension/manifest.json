@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "KilatX",
+  "short_name": "KilatX",
+  "version": "0.5.0",
+  "description": "Sends downloads to KilatX for faster, resumable downloading.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuG2jY6EOFQUAm1T8q5yDp6ebJSGLN5R9DPcoDKE1BT6mpkrXl79JXhsRM/3MwD2EZd8mYFEzgFYV81+D+ovECWKVPLNWLbOWVrBKG0R1AM7bJKIa1noVWy3M9vvk0nddjSJZc7otiL8A6wfb62xBQmSVLgyWKSolTQaaVauDCoxu6tYBWTpBgbeuUQLxMEGBF9qt7nY9H7CNbrByM7UnxxEZlBn3qjIlClirpQS4Yp8uHasrU9tBPZwIyTFZhFmwqgJFFLpp0qtjKh7A0i9a+aXr+4WRHfe4J+1BTwVSo+ym1MLStZ5MxAluFjbTz2iboGAUqRGtZrT4wdWKYdyvBQIDAQAB",
+  "minimum_chrome_version": "110",
+  "permissions": ["downloads", "nativeMessaging", "cookies", "contextMenus", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "KilatX",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

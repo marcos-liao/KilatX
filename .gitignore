@@ -1,0 +1,22 @@
+# Build output (releases are uploaded to GitHub Releases, not committed)
+target/
+dist/
+
+# Secret signing keys: never publish (see app/update-signing/README.txt)
+*.pem
+*.key
+*.pfx
+*.p12
+app/update-signing/update.key
+app/extension-signing/*.pem
+
+# Private reference notes and screenshots of other software (third-party copyright)
+mapping/
+
+# Retired code, local tool settings
+archive/
+.claude/
+
+# Test leftovers
+*.kilatpart
+__pycache__/

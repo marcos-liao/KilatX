@@ -1,0 +1,4 @@
+# The C runtime goes inside KilatX.exe: it runs on a PC without the Visual C++
+# Redistributable, and loads no runtime DLL that could be swapped next to it.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
