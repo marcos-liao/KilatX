@@ -49,10 +49,13 @@ New-Item -ItemType Directory -Force "$out\portable", "$out\extension" | Out-Null
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 function New-Zip([string]$source, [string]$zip, [string]$Folder = '') {
     if (Test-Path $zip) { Remove-Item -LiteralPath $zip }
-    $root = (Resolve-Path $source).Path.TrimEnd('\')
+    # Files are listed from the same DirectoryInfo, so their paths start exactly like its own
+    # (TEMP can be a short 8.3 path, e.g. on GitHub's runners, while other calls return the long one).
+    $dir = Get-Item -LiteralPath $source
+    $root = $dir.FullName.TrimEnd('\')
     $archive = [IO.Compression.ZipFile]::Open($zip, 'Create')
     try {
-        foreach ($file in Get-ChildItem $root -Recurse -File) {
+        foreach ($file in $dir.EnumerateFiles('*', [IO.SearchOption]::AllDirectories)) {
             $name = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
             if ($Folder) { $name = "$Folder/$name" }
             [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name, 'Optimal')

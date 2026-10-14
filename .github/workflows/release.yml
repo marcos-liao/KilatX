@@ -26,6 +26,8 @@ jobs:
     env:
       SIGNING: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
     steps:
+      # Files exactly as in the repository (Windows runners would turn line endings into CRLF)
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
 
       - name: Version
