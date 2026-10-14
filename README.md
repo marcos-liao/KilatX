@@ -22,7 +22,7 @@ Get the latest version from [Releases](https://github.com/marcos-liao/KilatX/rel
 
 ### "Windows protected your PC"?
 
-KilatX isn't code-signed yet, so Windows SmartScreen may warn about files downloaded from the
+KilatX isn't code-signed yet (see [Code signing policy](#code-signing-policy)), so Windows SmartScreen may warn about files downloaded from the
 internet, and setup shows "Unknown publisher". KilatX is safe to run: its full source code is
 in this repository, and every release lists the SHA-256 checksum of each file. Any one of these
 lets it run:
@@ -39,6 +39,23 @@ To check that a file is exactly the published one, compare its checksum with the
 ```
 Get-FileHash .\KilatX-Setup-0.5.0-x64.exe
 ```
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/). *(Applied for; until the certificate is issued,
+releases are unsigned.)*
+
+- Signed files are built by GitHub Actions from this repository only
+  ([release.yml](.github/workflows/release.yml)): `KilatX.exe`, the setups and the MSIs. Nothing
+  built on a personal computer is signed.
+- Every signing request is approved by hand before anything is signed.
+- Team roles:
+  - Committers and reviewers: [marcos-liao](https://github.com/marcos-liao)
+  - Approvers: [marcos-liao](https://github.com/marcos-liao)
+- Privacy: KilatX sends nothing about you or your downloads anywhere. Apart from the downloads you
+  start, it only checks GitHub for a new version once a day (can be turned off in Settings › About).
+  See the [privacy policy](app/docs/PRIVACY.txt).
 
 ## Features
 
@@ -114,12 +131,15 @@ and desktop behaviour.
 
 ## Releasing (maintainer)
 
-1. Raise `version` in `app/Cargo.toml` (and `app/extension/manifest.json`), run `setup\build.ps1`.
-2. Create a GitHub release `v<version>` with the files from `dist\<version>\`, and paste
-   `dist\<version>\SHA256SUMS.txt` into the release notes.
+1. Raise `version` in `app/Cargo.toml` (and `app/extension/manifest.json`), commit, and push a tag
+   `v<version>`. GitHub Actions ([release.yml](.github/workflows/release.yml)) builds everything,
+   has it code-signed (approve the requests in SignPath) and makes a **draft** release with the files
+   and `SHA256SUMS.txt`. (`setup\build.ps1` builds the same files locally, unsigned, for testing.)
+2. Check the draft, paste `SHA256SUMS.txt` into the notes, and link the
+   [Code signing policy](https://github.com/marcos-liao/KilatX#code-signing-policy).
 3. Make the signed `update.json` with `sign-update` (see `app/update-signing/README.txt`; the signing key is
    kept offline, never in this repository) and attach it to the same release. KilatX reads
-   `releases/latest/download/update.json`.
+   `releases/latest/download/update.json`. Then publish the release.
 
 ## License
 

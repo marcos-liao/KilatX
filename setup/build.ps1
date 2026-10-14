@@ -1,6 +1,9 @@
 param(
     [string[]]$Arch = @('x64', 'arm64'),
-    [switch]$SkipCargo
+    # Use the KilatX.exe already in app\target\<target>\release (for example after code signing)
+    [switch]$SkipCargo,
+    # Only build KilatX.exe (with the release flags below), no setups or zips
+    [switch]$CargoOnly
 )
 # Builds a KilatX release into dist\<version>\:
 #   x64\KilatX-Setup-<v>-x64.exe, arm64\KilatX-Setup-<v>-arm64.exe   installers (Inno Setup 6, Program Files)
@@ -16,7 +19,27 @@ $root = (Resolve-Path "$PSScriptRoot\..").Path
 $app = "$root\app"
 $version = (Select-String -Path "$app\Cargo.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
 $out = "$root\dist\$version"
-$iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+# Source paths end up in the exe (panic messages). Replace this PC's folders with neutral names
+# so a release doesn't carry the builder's user name or folder names. Encoded flags (separated by
+# 0x1F) because the paths may contain spaces; these replace .cargo\config.toml's rustflags, so
+# the static C runtime is repeated here.
+$cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { "$env:USERPROFILE\.cargo" }
+$flags = @('-C', 'target-feature=+crt-static', "--remap-path-prefix=$app=kilatx", "--remap-path-prefix=$cargoHome=cargo")
+$env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]0x1F
+
+if ($CargoOnly) {
+    foreach ($a in $Arch) {
+        $target = if ($a -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+        Push-Location $app
+        try {
+            cmd /c "cargo build --release --bin KilatX --target $target 2>&1"
+            if ($LASTEXITCODE) { throw "cargo build failed for $a" }
+        } finally { Pop-Location }
+    }
+    return
+}
+$iscc =@("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { throw 'Inno Setup 6 not found (winget install JRSoftware.InnoSetup)' }
 $wix = @("$env:USERPROFILE\.dotnet\tools\wix.exe") + @((Get-Command wix -ErrorAction SilentlyContinue).Source) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $wix) { throw 'WiX 5 not found (dotnet tool install --global wix --version 5.0.2)' }
@@ -38,14 +61,6 @@ function New-Zip([string]$source, [string]$zip, [string]$Folder = '') {
 }
 
 $staging = Join-Path $env:TEMP "kilatx-build-$version"
-
-# Source paths end up in the exe (panic messages). Replace this PC's folders with neutral names
-# so a release doesn't carry the builder's user name or folder names. Encoded flags (separated by
-# 0x1F) because the paths may contain spaces; these replace .cargo\config.toml's rustflags, so
-# the static C runtime is repeated here.
-$cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { "$env:USERPROFILE\.cargo" }
-$flags = @('-C', 'target-feature=+crt-static', "--remap-path-prefix=$app=kilatx", "--remap-path-prefix=$cargoHome=cargo")
-$env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]0x1F
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 
 foreach ($a in $Arch) {

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration "installers": the setups and MSIs built by
+     .github/workflows/release.yml from the already signed KilatX.exe. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="x64/KilatX-Setup-${version}-x64.exe" product-name="KilatX" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="arm64/KilatX-Setup-${version}-arm64.exe" product-name="KilatX" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <msi-file path="x64/KilatX-${version}-x64.msi" product-name="KilatX" product-version="${version}">
+      <authenticode-sign />
+    </msi-file>
+    <msi-file path="arm64/KilatX-${version}-arm64.msi" product-name="KilatX" product-version="${version}">
+      <authenticode-sign />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

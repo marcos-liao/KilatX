@@ -1,0 +1,154 @@
+# Builds a KilatX release on GitHub's servers, from this repository only:
+# KilatX.exe (x64, arm64) -> code signing -> setups, MSIs, portable zips -> code signing of the
+# setups and MSIs -> SHA256SUMS.txt. Run it from the Actions tab (Run workflow), or push a tag
+# v<version> to also get a draft release with the files.
+#
+# Code signing (SignPath, see "Code signing policy" in README.md) runs only once the repository
+# variable SIGNPATH_ORGANIZATION_ID and the secret SIGNPATH_API_TOKEN are set; until then the
+# files are built unsigned. Every signing request is approved by hand in SignPath.
+#
+# update.json is NOT made here: its key never leaves the maintainer's PC
+# (app/update-signing/README.txt). After checking the draft release, the maintainer signs
+# update.json for these files, attaches it, and publishes the release.
+name: Release build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write  # draft release on tags
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      SIGNING: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path app/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") { throw "tag $env:GITHUB_REF_NAME doesn't match version $v in app/Cargo.toml" }
+          "value=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Tools
+        shell: pwsh
+        run: |
+          rustup target add aarch64-pc-windows-msvc
+          dotnet tool install --global wix --version 5.0.2
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build KilatX.exe
+        shell: pwsh
+        run: ./setup/build.ps1 -CargoOnly
+
+      - name: Collect KilatX.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force exe/x64, exe/arm64 | Out-Null
+          Copy-Item app/target/x86_64-pc-windows-msvc/release/KilatX.exe exe/x64/
+          Copy-Item app/target/aarch64-pc-windows-msvc/release/KilatX.exe exe/arm64/
+
+      - name: Upload KilatX.exe for signing
+        id: upload-exe
+        if: env.SIGNING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: KilatX-exe-unsigned
+          path: exe/
+
+      - name: Sign KilatX.exe
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: KilatX
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: exe
+          github-artifact-id: ${{ steps.upload-exe.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.value }}"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 18000  # waits (up to 5 h) for the maintainer to approve
+          output-artifact-directory: exe-signed
+
+      - name: Use the signed KilatX.exe
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item exe-signed/x64/KilatX.exe app/target/x86_64-pc-windows-msvc/release/ -Force
+          Copy-Item exe-signed/arm64/KilatX.exe app/target/aarch64-pc-windows-msvc/release/ -Force
+
+      - name: Setups, MSIs, portable zips, extension
+        shell: pwsh
+        working-directory: setup
+        run: ./build.ps1 -SkipCargo
+
+      - name: Upload setups and MSIs for signing
+        id: upload-installers
+        if: env.SIGNING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: KilatX-installers-unsigned
+          path: |
+            dist/${{ steps.version.outputs.value }}/x64/
+            dist/${{ steps.version.outputs.value }}/arm64/
+
+      - name: Sign setups and MSIs
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: KilatX
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installers
+          github-artifact-id: ${{ steps.upload-installers.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.value }}"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 18000
+          output-artifact-directory: installers-signed
+
+      - name: Use the signed setups and MSIs, checksums
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+          $out = "dist/$v"
+          if ($env:SIGNING -eq 'true') {
+            Copy-Item installers-signed/x64/* "$out/x64/" -Force
+            Copy-Item installers-signed/arm64/* "$out/arm64/" -Force
+          }
+          $files = Get-ChildItem $out -File -Recurse | Where-Object { $_.Name -like "*$v*" }
+          $files | ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName).Hash.ToLower(), $_.Name } | Set-Content "$out/SHA256SUMS.txt" -Encoding ascii
+          Get-Content "$out/SHA256SUMS.txt"
+          Get-ChildItem $out -Recurse -Include *.exe, *.msi | ForEach-Object { '{0}: {1}' -f $_.Name, (Get-AuthenticodeSignature $_.FullName).Status }
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: KilatX-${{ steps.version.outputs.value }}
+          path: |
+            dist/${{ steps.version.outputs.value }}/x64/
+            dist/${{ steps.version.outputs.value }}/arm64/
+            dist/${{ steps.version.outputs.value }}/portable/*.zip
+            dist/${{ steps.version.outputs.value }}/extension/
+            dist/${{ steps.version.outputs.value }}/SHA256SUMS.txt
+
+      - name: Draft release (tags only)
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.version.outputs.value }}'
+          $d = "dist/$v"
+          gh release create "v$v" --draft --title "KilatX $v" --notes "Built by GitHub Actions run $env:GITHUB_RUN_ID. update.json is attached by the maintainer before publishing." `
+            "$d/x64/KilatX-Setup-$v-x64.exe" "$d/arm64/KilatX-Setup-$v-arm64.exe" "$d/x64/KilatX-$v-x64.msi" "$d/arm64/KilatX-$v-arm64.msi" `
+            "$d/portable/KilatX-$v-portable-win64.zip" "$d/portable/KilatX-$v-portable-arm64.zip" "$d/extension/KilatX-browser-extension-$v.zip" "$d/SHA256SUMS.txt"
