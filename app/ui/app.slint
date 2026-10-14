@@ -68,6 +68,15 @@ export struct QueueData {
     running: bool,
 }
 
+// One line of KilatX's log (Settings › Logs). level: 0 error, 1 warning, 2 info, 3 debug.
+export struct LogLine {
+    number: int,
+    time: string,
+    level: int,
+    area: string,
+    message: string,
+}
+
 export struct CategoryData {
     key: string,
     label: string,
@@ -1017,6 +1026,9 @@ export component AppWindow inherits Window {
     in-out property <int> set-log-level: 2;
     in-out property <string> set-log-folder;
     in property <string> log-folder-default;
+    // The end of the log file, newest first (filled while the Logs page is open).
+    in property <[LogLine]> log-lines;
+    in property <string> log-file;
     // Updates
     in-out property <bool> set-check-updates;
     in property <string> update-check-text;
@@ -1899,8 +1911,73 @@ export component AppWindow inherits Window {
                         wrap: word-wrap;
                     }
                     HorizontalLayout {
-                        alignment: start;
+                        spacing: 12px;
                         Button { text: "Open logs folder"; clicked => { root.open-logs(); } }
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: root.log-lines.length == 0 ? "The log is empty." : "Newest first: " + root.log-file;
+                                color: Theme.muted;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 180px;
+                        background: Theme.panel;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.faint;
+                        clip: true;
+                        ListView {
+                            for line in root.log-lines: HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                padding-top: 2px;
+                                padding-bottom: 2px;
+                                spacing: 8px;
+                                Text {
+                                    text: line.number;
+                                    width: 34px;
+                                    horizontal-alignment: right;
+                                    color: Theme.muted.with-alpha(0.4);
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                }
+                                Text {
+                                    text: line.time;
+                                    width: 104px;
+                                    color: Theme.muted;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                }
+                                Text {
+                                    text: line.level == 0 ? "ERROR" : line.level == 1 ? "WARN" : line.level == 3 ? "DEBUG" : "INFO";
+                                    width: 40px;
+                                    color: line.level == 0 ? #ef4444 : line.level == 1 ? #f59e0b : line.level == 3 ? Theme.muted : Theme.accent;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                    font-weight: line.level <= 1 ? 700 : 400;
+                                }
+                                Text {
+                                    text: line.area;
+                                    width: 96px;
+                                    color: Theme.muted;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: line.message;
+                                    horizontal-stretch: 1;
+                                    color: line.level == 0 ? #ef4444 : line.level == 1 ? #f59e0b : Theme.fg;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
                     }
                 }
 

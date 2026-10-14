@@ -7,7 +7,7 @@
 //! What never goes in: cookies, passwords, login headers. Addresses are written without their
 //! query string (`?…`), which often carries one-time tokens.
 //!
-//! Level (Error, Warning, Info, Debug) and folder are set in Settings › About; Debug adds
+//! Level (Error, Warning, Info, Debug) and folder are set in Settings › Logs, which also shows the log; Debug adds
 //! what each connection does (requests, splits, retries, take-overs).
 //!
 //! At 1 MB the file becomes kilatx.1.log (then .2, .3); older ones are deleted.
@@ -58,6 +58,49 @@ pub fn configure(level: &str, folder: &str, data_dir: &Path) -> PathBuf {
 /// The folder the log is written to now.
 pub fn current_folder() -> Option<PathBuf> {
     LOG.get()?.lock().ok()?.parent().map(Path::to_path_buf)
+}
+
+/// The file the log is written to now.
+pub fn current_file() -> Option<PathBuf> {
+    Some(LOG.get()?.lock().ok()?.clone())
+}
+
+/// One line of the log, split for showing it (see `tail`).
+#[derive(Debug, PartialEq)]
+pub struct Line {
+    /// 1-based line number in the file.
+    pub number: usize,
+    pub time: String,
+    /// 0 error, 1 warning, 2 info, 3 debug (as LEVELS); 2 for lines that don't parse.
+    pub level: u8,
+    pub area: String,
+    pub message: String,
+}
+
+/// The last `max` lines of the log file, newest first.
+pub fn tail(path: &Path, max: usize) -> Vec<Line> {
+    let Ok(bytes) = std::fs::read(path) else { return Vec::new() };
+    let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = text.lines().collect();
+    let first = lines.len().saturating_sub(max);
+    lines[first..].iter().enumerate().rev().map(|(i, l)| parse_line(first + i + 1, l)).collect()
+}
+
+/// "2026-10-13 14:53:11.115 WARN  [hang] window not answering" → its parts.
+fn parse_line(number: usize, line: &str) -> Line {
+    let plain = || Line { number, time: String::new(), level: 2, area: String::new(), message: line.to_string() };
+    // Date and time are fixed width: "YYYY-MM-DD HH:MM:SS.mmm".
+    let (Some(stamp), Some(rest)) = (line.get(..23), line.get(24..)) else { return plain() };
+    let (level_word, rest) = rest.split_at(rest.find(' ').unwrap_or(rest.len()));
+    let Some(level) = ["ERROR", "WARN", "INFO", "DEBUG"].iter().position(|l| *l == level_word) else { return plain() };
+    let rest = rest.trim_start();
+    let (area, message) = match rest.strip_prefix('[').and_then(|r| r.split_once("] ").or_else(|| r.strip_suffix(']').map(|a| (a, "")))) {
+        Some((area, message)) => (area.to_string(), message.to_string()),
+        None => (String::new(), rest.to_string()),
+    };
+    // Shown without the year and milliseconds: "10-13 14:53:11".
+    let time = format!("{} {}", &stamp[5..10], &stamp[11..19]);
+    Line { number, time, level: level as u8, area, message }
 }
 
 pub fn debug_enabled() -> bool {
@@ -175,6 +218,29 @@ mod tests {
         assert_eq!(redact("http://example.com/page#frag"), "http://example.com/page?(query hidden)");
         assert_eq!(redact("no address here"), "no address here");
         assert_eq!(redact("HTTPS://Example.com/x?y"), "HTTPS://Example.com/x?(query hidden)");
+    }
+
+    #[test]
+    fn tail_splits_lines_newest_first() {
+        let dir = std::env::temp_dir().join(format!("kilatx-log-tail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("kilatx.log");
+        std::fs::write(
+            &path,
+            "2026-10-13 14:48:04.211 INFO  [quit] \n\
+             2026-10-13 14:53:11.115 WARN  [hang] window not answering for 5 s, busy with: idle\n\
+             garbage line\n\
+             2026-10-13 14:53:12.000 ERROR [panic] boom at src/x.rs:1\n",
+        )
+        .unwrap();
+        let lines = tail(&path, 3);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], Line { number: 4, time: "10-13 14:53:12".into(), level: 0, area: "panic".into(), message: "boom at src/x.rs:1".into() });
+        assert_eq!(lines[1], Line { number: 3, time: String::new(), level: 2, area: String::new(), message: "garbage line".into() });
+        assert_eq!(lines[2], Line { number: 2, time: "10-13 14:53:11".into(), level: 1, area: "hang".into(), message: "window not answering for 5 s, busy with: idle".into() });
+        assert_eq!(tail(&path, 10)[3], Line { number: 1, time: "10-13 14:48:04".into(), level: 2, area: "quit".into(), message: String::new() });
+        assert!(tail(&dir.join("missing.log"), 10).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

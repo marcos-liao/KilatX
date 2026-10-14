@@ -58,7 +58,7 @@ Get-FileHash .\KilatX-Setup-0.5.0-x64.exe
 - Clipboard watcher: copying a link to a file opens the Add dialog
 - Optional start with Windows (straight to the tray)
 - Help, About and Settings in the toolbar; built-in help (English)
-- Log file (`logs\kilatx.log` in the data folder; level and folder in Settings › Logs) with no passwords,
+- Log file (`logs\kilatx.log` in the data folder; level, folder and a log viewer in Settings › Logs) with no passwords,
   cookies or address tokens; notes when the window stops answering and what KilatX was doing
 
 **Options**

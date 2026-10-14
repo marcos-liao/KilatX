@@ -83,7 +83,8 @@ SETTINGS
   - Site logins: user name and password for sites that ask for them (Basic or Digest
     login). Passwords are encrypted by Windows for your account.
   - Browser: the browser connection (see BROWSER).
-  - Logs: how much KilatX writes to its log, and where (see TROUBLESHOOTING).
+  - Logs: how much KilatX writes to its log and where, and the latest lines of the log
+    (newest first, warnings in orange, errors in red; see TROUBLESHOOTING).
   - About: version, update check, licenses, privacy policy, source code.
 
 

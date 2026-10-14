@@ -1488,10 +1488,38 @@ fn main() -> Result<(), slint::PlatformError> {
         let save_all = save_all.clone();
         let show_window = show_window.clone();
         let repaint_hooked = std::cell::Cell::new(false);
+        // What the Logs page shows: file and its size/time, reloaded only when that changes.
+        let log_shown = std::cell::RefCell::new(None::<(PathBuf, u64, Option<std::time::SystemTime>)>);
         move || {
             let Some(ui) = ui.upgrade() else { return };
             watchdog::beat();
             let _tick = watchdog::busy("tick");
+            if ui.get_show_settings() && ui.get_settings_page() == 7 {
+                let _b = watchdog::busy("tick:log viewer");
+                if let Some(path) = log::current_file() {
+                    let meta = std::fs::metadata(&path).ok();
+                    let key = (path.clone(), meta.as_ref().map_or(0, |m| m.len()), meta.and_then(|m| m.modified().ok()));
+                    if log_shown.borrow().as_ref() != Some(&key) {
+                        let lines: Vec<LogLine> = log::tail(&path, 300)
+                            .into_iter()
+                            .map(|l| LogLine {
+                                number: l.number as i32,
+                                time: l.time.into(),
+                                level: l.level as i32,
+                                area: l.area.into(),
+                                message: l.message.into(),
+                            })
+                            .collect();
+                        ui.set_log_lines(ModelRc::new(VecModel::from(lines)));
+                        ui.set_log_file(path.display().to_string().into());
+                        *log_shown.borrow_mut() = Some(key);
+                    }
+                }
+            } else if log_shown.borrow().is_some() {
+                // Closed: forget it, so the page is read fresh next time.
+                *log_shown.borrow_mut() = None;
+                ui.set_log_lines(ModelRc::default());
+            }
             // Once the window exists: draw all of it again whenever Windows asks for that.
             if !repaint_hooked.get() {
                 let weak = ui.as_weak();
