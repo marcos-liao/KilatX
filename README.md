@@ -1,6 +1,6 @@
 # KilatX
 
-**A free and open-source download manager for Windows.** Native Rust with a Slint user
+**Fast, free, no ads, no tracking. An open-source download manager for Windows.** Native Rust with a Slint user
 interface (no web view, ~8 MB), for Windows 10 and 11 on x64 and ARM64.
 
 *Kilat* is Indonesian for lightning.
