@@ -307,10 +307,32 @@ pub fn keep_tray_icon_after_explorer_restart() {
             // Lets Explorer's message through even if KilatX was started as administrator.
             Ok(hwnd) => {
                 let _ = ChangeWindowMessageFilterEx(hwnd, message, MSGFLT_ALLOW, None);
+                UI_THREAD_WINDOW.store(hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
             }
             Err(e) => crate::log::warn("tray", &format!("cannot watch for taskbar restarts: {e}")),
         }
     }
+}
+
+/// A window of the UI thread that always exists (the taskbar watcher), for `ui_thread_answers`.
+static UI_THREAD_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Whether the UI thread still handles window messages, asked from another thread: Some(true)
+/// when it answers within `timeout`, Some(false) when it doesn't, None before the window exists.
+/// While a menu is open or the window is being moved or resized, Windows runs its own message
+/// loop on the UI thread: KilatX's timer pauses, but the thread still answers, so it isn't hung.
+pub fn ui_thread_answers(timeout: std::time::Duration) -> Option<bool> {
+    let hwnd = UI_THREAD_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    if hwnd == 0 {
+        return None;
+    }
+    Some(probe_window(windows::Win32::Foundation::HWND(hwnd as *mut _), timeout))
+}
+
+fn probe_window(hwnd: windows::Win32::Foundation::HWND, timeout: std::time::Duration) -> bool {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, SMTO_ABORTIFHUNG, SMTO_BLOCK, WM_NULL};
+    unsafe { SendMessageTimeoutW(hwnd, WM_NULL, WPARAM(0), LPARAM(0), SMTO_BLOCK | SMTO_ABORTIFHUNG, timeout.as_millis() as u32, None).0 != 0 }
 }
 
 fn taskbar_created_message() -> u32 {
@@ -424,6 +446,51 @@ pub fn notify(title: &str, body: &str) -> windows::core::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A window on its own thread that either keeps handling messages or is stuck.
+    fn window_on_thread(stuck: bool) -> (windows::Win32::Foundation::HWND, std::thread::JoinHandle<()>) {
+        use windows::core::w;
+        use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        let (tx, rx) = std::sync::mpsc::channel::<isize>();
+        let handle = std::thread::spawn(move || unsafe {
+            let instance = GetModuleHandleW(None).unwrap();
+            unsafe extern "system" fn proc(h: windows::Win32::Foundation::HWND, m: u32, w: windows::Win32::Foundation::WPARAM, l: windows::Win32::Foundation::LPARAM) -> windows::Win32::Foundation::LRESULT {
+                DefWindowProcW(h, m, w, l)
+            }
+            let class = WNDCLASSW { lpfnWndProc: Some(proc), hInstance: instance.into(), lpszClassName: w!("KilatXProbeTest"), ..Default::default() };
+            RegisterClassW(&class);
+            let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), w!("KilatXProbeTest"), PCWSTR::null(), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None).unwrap();
+            tx.send(hwnd.0 as isize).unwrap();
+            if stuck {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            } else {
+                let start = std::time::Instant::now();
+                let mut msg = MSG::default();
+                while start.elapsed() < std::time::Duration::from_secs(3) {
+                    while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                        DispatchMessageW(&msg);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+            let _ = DestroyWindow(hwnd);
+        });
+        (windows::Win32::Foundation::HWND(rx.recv().unwrap() as *mut _), handle)
+    }
+
+    #[test]
+    fn a_thread_handling_messages_answers_and_a_stuck_one_does_not() {
+        let timeout = std::time::Duration::from_millis(500);
+        let (hwnd, t) = window_on_thread(false);
+        assert!(probe_window(hwnd, timeout), "a thread handling messages answers");
+        t.join().unwrap();
+        let (hwnd, t) = window_on_thread(true);
+        let asked = std::time::Instant::now();
+        assert!(!probe_window(hwnd, timeout), "a stuck thread doesn't");
+        assert!(asked.elapsed() < std::time::Duration::from_secs(2), "the question gives up after its timeout");
+        t.join().unwrap();
+    }
 
     /// Touches the real Run key; removes it again at the end.
     #[test]

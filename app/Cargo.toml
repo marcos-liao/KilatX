@@ -1,6 +1,6 @@
 [package]
 name = "kilatx"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "KilatX - multi-connection downloads for Windows"
 license = "GPL-3.0-only"
