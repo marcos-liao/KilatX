@@ -888,7 +888,24 @@ fn main() -> Result<(), slint::PlatformError> {
                     last = Some(id);
                 }
             }
-            if !for_dialog.is_empty() && ask.is_none() {
+            if !for_dialog.is_empty() && ask.is_none() && ui.get_show_add() {
+                // The Add dialog is already open (browsers sometimes hand the same download over
+                // twice): keep what the user chose there (folder, name) and only add links that
+                // aren't shown yet.
+                let current = ui.get_add_url().to_string();
+                let shown: Vec<&str> = current.split_whitespace().collect();
+                let new: Vec<String> = for_dialog.iter().map(|d| d.url.clone()).filter(|u| !shown.contains(&u.as_str())).collect();
+                if !new.is_empty() {
+                    ui.set_add_url(format!("{} {}", current.trim(), new.join(" ")).trim().into());
+                }
+                let mut st = state.borrow_mut();
+                for dl in for_dialog {
+                    st.browser_pending.insert(dl.url.clone(), dl);
+                }
+                drop(st);
+                util::event_log("add-dialog-again", &new.join(" "));
+                show_window();
+            } else if !for_dialog.is_empty() && ask.is_none() {
                 let urls: Vec<String> = for_dialog.iter().map(|d| d.url.clone()).collect();
                 ui.set_add_url(urls.join(" ").into());
                 ui.set_add_name(if for_dialog.len() == 1 { for_dialog[0].filename.as_str().into() } else { SharedString::new() });
@@ -1583,6 +1600,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     let line = format!("#{} {:?} -> {:?}: {} ({size}) {}", it.id, before, it.status, it.file_name, it.url);
                     match it.status {
                         Status::Error => log::warn("download", &format!("{line}: {}", it.error.as_deref().unwrap_or("unknown error"))),
+                        Status::Complete => log::info("download", &format!("{line} saved in {}", it.save_dir.display())),
                         _ => log::info("download", &line),
                     }
                     if !notify {
